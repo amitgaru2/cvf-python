@@ -15,7 +15,9 @@ def override_print(*args):
 
 print = override_print
 
+#Function that returns the lamda function 
 def decorate_update(func):
+	#Ensures that the wrappers functions retains the metadata from the original func
 	@functools.wraps(func)
 	def wrapper(*args, **kwargs):
 		return lambda: func(*args, **kwargs)
