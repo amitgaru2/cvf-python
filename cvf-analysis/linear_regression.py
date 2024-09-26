@@ -1,9 +1,10 @@
 import os
 import copy
 import json
+import pickle
 
+import redis
 import numpy as np
-import pandas as pd
 
 from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
@@ -25,6 +26,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.cache = {"p": {}, "q": {}, "r": {}}
         self.config = LRConfig.generate_config(config_file)
         self.nodes = list(range(self.config.no_of_nodes))
+        self.redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
     # def __gen_test_data_partition_frm_df(self, partitions, df):
     #     shuffled = df.sample(frac=1)
@@ -33,24 +35,29 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
-        self._find_program_transitions_n_cvfs()
-        # self._init_pts_rank()
-        # self.__save_pts_to_file()
-        self._rank_all_states()
-        self._gen_save_rank_count()
-        self._calculate_pts_rank_effect()
-        self._calculate_cvfs_rank_effect()
-        self._gen_save_rank_effect_count()
-        self._gen_save_rank_effect_by_node_count()
+        # self._find_program_transitions_n_cvfs()
+        # # self._init_pts_rank()
+        # # self.__save_pts_to_file()
+        # self._rank_all_states()
+        # self._gen_save_rank_count()
+        # self._calculate_pts_rank_effect()
+        # self._calculate_cvfs_rank_effect()
+        # self._gen_save_rank_effect_count()
+        # self._gen_save_rank_effect_by_node_count()
 
     def _gen_configurations(self):
         logger.debug("Generating configurations...")
-        self.configurations = {
-            tuple([self.config.min_slope for _ in range(self.config.no_of_nodes)])
-        }
+        min_slope_config = tuple(
+            [self.config.min_slope for _ in range(self.config.no_of_nodes)]
+        )
+        configurations = {min_slope_config}
+        config_count = 0
+        pipe = self.redis_client.pipeline()
+        pipe.set(f"config_{config_count}", pickle.dumps(min_slope_config))
+        config_count += 1
         # perturb each state at a time for all states in configurations and accumulate the same in the configurations for next state to perturb
         for node_pos in range(self.config.no_of_nodes):
-            config_copy = copy.deepcopy(self.configurations)
+            config_copy = copy.deepcopy(configurations)
             for i in np.round(
                 np.arange(
                     self.config.min_slope + self.config.slope_step,
@@ -62,9 +69,17 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 for cc in config_copy:
                     cc = list(cc)
                     cc[node_pos] = i
-                    self.configurations.add(tuple(cc))
+                    configurations.add(tuple(cc))
+                    pipe.set(
+                        f"config_{config_count}", pickle.dumps(tuple(cc))
+                    )
+                    if len(pipe) % 1000 == 0:
+                        pipe.execute()
+                    config_count += 1
 
-        logger.info("No. of Configurations: %s", len(self.configurations))
+        pipe.set("meta_total_configs", config_count)
+        pipe.execute()
+        logger.info("No. of Configurations: %s", config_count)
 
     def _find_invariants(self):
         logger.info("No. of Invariants: %s", len(self.invariants))
