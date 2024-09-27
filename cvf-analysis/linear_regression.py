@@ -35,7 +35,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
-        # self._find_program_transitions_n_cvfs()
+        self._find_program_transitions_n_cvfs()
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
         # self._rank_all_states()
