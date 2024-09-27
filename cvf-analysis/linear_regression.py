@@ -75,12 +75,18 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
         # print(len(possible_values), starting_values_from_rows)
 
+        # no_of_nodes = 3
+        # possible_values = 0, 1, 2, 4
+        # 0 0 0
+        # 0 0 1
+        # 0 0 2
+        # 
+
         for sv in starting_values_from_rows:
             config[0] = sv
-            for i in range(1, self.config.no_of_nodes-1):
-                for value in possible_values:
-                    config[i] = value
-                self.configurations.add(tuple(config))
+            for j in self.config.no_of_nodes:
+                for val in possible_values:
+
         # all_nodes_possible_values = [
         #     possible_values[:] for _ in range(self.config.no_of_nodes)
         # ]
