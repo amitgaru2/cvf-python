@@ -3,11 +3,16 @@ import copy
 import json
 
 import numpy as np
-import pandas as pd
+
+from mpi4py import MPI
 
 from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
 from lr_configs.config_adapter import LRConfig
+
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
 
 
 class LinearRegressionFullAnalysis(CVFAnalysis):
@@ -33,36 +38,75 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
-        self._find_program_transitions_n_cvfs()
-        # self._init_pts_rank()
-        # self.__save_pts_to_file()
-        self._rank_all_states()
-        self._gen_save_rank_count()
-        self._calculate_pts_rank_effect()
-        self._calculate_cvfs_rank_effect()
-        self._gen_save_rank_effect_count()
-        self._gen_save_rank_effect_by_node_count()
+        # self._find_program_transitions_n_cvfs()
+        # # self._init_pts_rank()
+        # # self.__save_pts_to_file()
+        # self._rank_all_states()
+        # self._gen_save_rank_count()
+        # self._calculate_pts_rank_effect()
+        # self._calculate_cvfs_rank_effect()
+        # self._gen_save_rank_effect_count()
+        # self._gen_save_rank_effect_by_node_count()
 
     def _gen_configurations(self):
         logger.debug("Generating configurations...")
-        self.configurations = {
-            tuple([self.config.min_slope for _ in range(self.config.no_of_nodes)])
-        }
+        # if rank == 0:
+        #     self.configurations = {
+        #         tuple([self.config.min_slope for _ in range(self.config.no_of_nodes)])
+        #     }
+        # self.configurations = comm.bcast(self.configurations, root=0)
+        possible_values = np.round(
+            np.arange(
+                self.config.min_slope,
+                self.config.max_slope + self.config.slope_step,
+                self.config.slope_step,
+            ),
+            self.config.slope_step_decimals,
+        )
+        config = [None for _ in range(self.config.no_of_nodes)]
+        starting_values_from_rows = []
+        offset = 0
+        while True:
+            if len(possible_values) > offset + rank:
+                starting_values_from_rows.append(offset + rank)
+                offset += comm.size
+            else:
+                break
+
+        # print(len(possible_values), starting_values_from_rows)
+
+        for sv in starting_values_from_rows:
+            config[0] = sv
+            for i in range(1, self.config.no_of_nodes-1):
+                for value in possible_values:
+                    config[i] = value
+                self.configurations.add(tuple(config))
+        # all_nodes_possible_values = [
+        #     possible_values[:] for _ in range(self.config.no_of_nodes)
+        # ]
+        # possible_value_node = all_nodes_possible_values[rank]
+
+        # for other_node in set(range(self.config.no_of_nodes) - rank):
+        #     for other_node_val in possible_values:
+        #         cc = list(config_copy)
+        #         cc[other_node] = other_node_val
+        #         self.configurations.add(tuple(cc))
+
         # perturb each state at a time for all states in configurations and accumulate the same in the configurations for next state to perturb
-        for node_pos in range(self.config.no_of_nodes):
-            config_copy = copy.deepcopy(self.configurations)
-            for i in np.round(
-                np.arange(
-                    self.config.min_slope + self.config.slope_step,
-                    self.config.max_slope + self.config.slope_step,
-                    self.config.slope_step,
-                ),
-                self.config.slope_step_decimals,
-            ):
-                for cc in config_copy:
-                    cc = list(cc)
-                    cc[node_pos] = i
-                    self.configurations.add(tuple(cc))
+        # for node_pos in range(self.config.no_of_nodes):
+        #     config_copy = copy.deepcopy(self.configurations)
+        #     for i in np.round(
+        #         np.arange(
+        #             self.config.min_slope + self.config.slope_step,
+        #             self.config.max_slope + self.config.slope_step,
+        #             self.config.slope_step,
+        #         ),
+        #         self.config.slope_step_decimals,
+        #     ):
+        #         for cc in config_copy:
+        #             cc = list(cc)
+        #             cc[node_pos] = i
+        #             self.configurations.add(tuple(cc))
 
         logger.info("No. of Configurations: %s", len(self.configurations))
 
