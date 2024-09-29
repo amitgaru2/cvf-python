@@ -1,3 +1,4 @@
+import itertools
 import os
 import copy
 import json
@@ -73,46 +74,12 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             else:
                 break
 
-        # print(len(possible_values), starting_values_from_rows)
-
-        # no_of_nodes = 3
-        # possible_values = 0, 1, 2, 4
-        # 0 0 0
-        # 0 0 1
-        # 0 0 2
-        # 
-
         for sv in starting_values_from_rows:
             config[0] = sv
-            for j in self.config.no_of_nodes:
-                for val in possible_values:
-
-        # all_nodes_possible_values = [
-        #     possible_values[:] for _ in range(self.config.no_of_nodes)
-        # ]
-        # possible_value_node = all_nodes_possible_values[rank]
-
-        # for other_node in set(range(self.config.no_of_nodes) - rank):
-        #     for other_node_val in possible_values:
-        #         cc = list(config_copy)
-        #         cc[other_node] = other_node_val
-        #         self.configurations.add(tuple(cc))
-
-        # perturb each state at a time for all states in configurations and accumulate the same in the configurations for next state to perturb
-        # for node_pos in range(self.config.no_of_nodes):
-        #     config_copy = copy.deepcopy(self.configurations)
-        #     for i in np.round(
-        #         np.arange(
-        #             self.config.min_slope + self.config.slope_step,
-        #             self.config.max_slope + self.config.slope_step,
-        #             self.config.slope_step,
-        #         ),
-        #         self.config.slope_step_decimals,
-        #     ):
-        #         for cc in config_copy:
-        #             cc = list(cc)
-        #             cc[node_pos] = i
-        #             self.configurations.add(tuple(cc))
+            other_node_values = itertools.product(possible_values, repeat=self.config.no_of_nodes-1)
+            for nv in other_node_values:
+                config[1:] = nv[:]
+                self.configurations.add(tuple(config))
 
         logger.info("No. of Configurations: %s", len(self.configurations))
 
