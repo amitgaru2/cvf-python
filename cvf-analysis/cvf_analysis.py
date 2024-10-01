@@ -1,10 +1,11 @@
-import json
 import os
 import csv
 import math
+import json
 import time
 import random
 
+import redis
 import pandas as pd
 
 from custom_logger import logger
@@ -33,6 +34,8 @@ class CVFAnalysis:
         self.cvfs_out_rank_effect = dict()
         self.cvfs_in_rank_effect_df = None
         self.cvfs_out_rank_effect_df = None
+
+        self.redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
         self.create_results_dir_if_not_exists()
 

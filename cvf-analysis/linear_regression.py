@@ -32,6 +32,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.config = LRConfig.generate_config(config_file)
         self.nodes = list(range(self.config.no_of_nodes))
 
+        self.configurations_id = dict()
+        self.configurations_count = 0
+
     # def __gen_test_data_partition_frm_df(self, partitions, df):
     #     shuffled = df.sample(frac=1)
     #     result = np.array_split(shuffled, partitions)
@@ -39,10 +42,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
-        self._find_program_transitions_n_cvfs()
+        # self._find_program_transitions_n_cvfs()
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
-        self._rank_all_states()
+        # self._rank_all_states()
         # self._gen_save_rank_count()
         # self._calculate_pts_rank_effect()
         # self._calculate_cvfs_rank_effect()
@@ -79,9 +82,12 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             other_node_values = itertools.product(possible_values, repeat=self.config.no_of_nodes-1)
             for nv in other_node_values:
                 config[1:] = nv[:]
-                self.configurations.add(tuple(config))
+                config_cpy = tuple(config)
+                self.configurations_id[config_cpy] = f"{rank}#{self.configurations_count}"
+                self.configurations.add(config_cpy)
+                self.configurations_count += 1
 
-        logger.info("No. of Configurations: %s", len(self.configurations))
+        logger.info("No. of Configurations: %s", self.configurations_count)
 
     def _find_invariants(self):
         logger.info("No. of Invariants: %s", len(self.invariants))
