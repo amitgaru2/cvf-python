@@ -1,7 +1,9 @@
+import hashlib
 import itertools
 import os
 import copy
 import json
+import pickle
 
 import numpy as np
 
@@ -33,7 +35,14 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.nodes = list(range(self.config.no_of_nodes))
 
         self.configurations_id = dict()
-        self.configurations_count = 0
+        self.possible_values = np.round(
+            np.arange(
+                self.config.min_slope,
+                self.config.max_slope + self.config.slope_step,
+                self.config.slope_step,
+            ),
+            self.config.slope_step_decimals,
+        )
 
     # def __gen_test_data_partition_frm_df(self, partitions, df):
     #     shuffled = df.sample(frac=1)
@@ -42,7 +51,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
-        # self._find_program_transitions_n_cvfs()
+        self._find_program_transitions_n_cvfs()
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
         # self._rank_all_states()
@@ -52,6 +61,12 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         # self._gen_save_rank_effect_count()
         # self._gen_save_rank_effect_by_node_count()
 
+    def get_config_dump(self, config):
+        return pickle.dumps(config)
+
+    def hash_config(self, config):
+        return hashlib.md5(str(config).encode()).hexdigest()
+
     def _gen_configurations(self):
         logger.debug("Generating configurations...")
         # if rank == 0:
@@ -59,35 +74,41 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         #         tuple([self.config.min_slope for _ in range(self.config.no_of_nodes)])
         #     }
         # self.configurations = comm.bcast(self.configurations, root=0)
-        possible_values = np.round(
-            np.arange(
-                self.config.min_slope,
-                self.config.max_slope + self.config.slope_step,
-                self.config.slope_step,
-            ),
-            self.config.slope_step_decimals,
-        )
+
         config = [None for _ in range(self.config.no_of_nodes)]
         starting_values_from_rows = []
         offset = 0
         while True:
-            if len(possible_values) > offset + rank:
+            if len(self.possible_values) > offset + rank:
                 starting_values_from_rows.append(offset + rank)
                 offset += comm.size
             else:
                 break
 
         for sv in starting_values_from_rows:
-            config[0] = sv
-            other_node_values = itertools.product(possible_values, repeat=self.config.no_of_nodes-1)
+            config[0] = self.possible_values[sv]
+            other_node_values = itertools.product(
+                self.possible_values, repeat=self.config.no_of_nodes - 1
+            )
+            configuration_count = 0
             for nv in other_node_values:
                 config[1:] = nv[:]
                 config_cpy = tuple(config)
-                self.configurations_id[config_cpy] = f"{rank}#{self.configurations_count}"
+                # self.configurations_id[config_cpy] = f"{rank}#{self.configurations_count}"
+                config_hash = self.hash_config(config_cpy)
+                self.redis_client.set(
+                    f"config_{config_hash}",
+                    f"{rank}#{configuration_count}",
+                )
+                self.redis_client.set(
+                    f"config_id_{rank}#{configuration_count}",
+                    config_hash,
+                )
                 self.configurations.add(config_cpy)
-                self.configurations_count += 1
+                configuration_count += 1
 
-        logger.info("No. of Configurations: %s", self.configurations_count)
+        comm.barrier()
+        logger.info("No. of Configurations: %s", len(self.configurations))
 
     def _find_invariants(self):
         logger.info("No. of Invariants: %s", len(self.invariants))
@@ -211,7 +232,15 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     list(start_state), node_id, new_slope_cleaned
                 )
                 new_node_params = tuple(new_node_params)
-                program_transitions.add(new_node_params)
+                config_id = self.redis_client.get(
+                    f"config_{self.hash_config(new_node_params)}"
+                )
+                if config_id is None:
+                    logger.error(
+                        "Config id not found for the config %s", new_node_params
+                    )
+                    exit(1)
+                program_transitions.add(config_id)
 
         if not program_transitions:
             self._add_to_invariants(start_state)
