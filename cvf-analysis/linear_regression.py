@@ -1,13 +1,14 @@
 import hashlib
 import itertools
+import math
 import os
-import copy
 import json
 import pickle
 
 import numpy as np
 
 from mpi4py import MPI
+import redis
 
 from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
@@ -34,6 +35,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.config = LRConfig.generate_config(config_file)
         self.nodes = list(range(self.config.no_of_nodes))
 
+        self.redis_client = redis.Redis(host="localhost", port=6379, db=0)
+
         self.configurations_id = dict()
         self.possible_values = np.round(
             np.arange(
@@ -54,7 +57,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self._find_program_transitions_n_cvfs()
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
-        # self._rank_all_states()
+        self._rank_all_states()
         # self._gen_save_rank_count()
         # self._calculate_pts_rank_effect()
         # self._calculate_cvfs_rank_effect()
@@ -99,6 +102,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 self.redis_client.set(
                     f"config_{config_hash}",
                     f"{rank}#{configuration_count}",
+                )
+                self.redis_client.set(f"config_rank_{config_hash}", -1)
+                self.redis_client.set(
+                    f"config_actual_{config_hash}", self.get_config_dump(config_cpy)
                 )
                 self.redis_client.set(
                     f"config_id_{rank}#{configuration_count}",
@@ -152,6 +159,12 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.cache["r"][node_id] = result
         return result
 
+    def _add_to_invariants(self, state):
+        self.invariants.add(state)
+        state_id = self.redis_client.get(f"config_{self.hash_config(state)}").decode()
+        self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
+        self.redis_client.sadd("configs_ranked", self.hash_config(state))
+
     # def __gradient_m(self, X, y, y_pred):
     #     N = len(y)
     #     return (-2 / N) * np.sum(X * (y - y_pred))
@@ -181,7 +194,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         node_params = list(start_state)
 
         for node_id in range(self.config.no_of_nodes):
-            for i in range(1, self.config.iterations + 1):
+            for _ in range(1, self.config.iterations + 1):
                 prev_m = node_params[node_id]
 
                 start_state_cpy = list(start_state)
@@ -271,6 +284,77 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 )
 
         return cvfs
+
+    def _find_program_transitions_n_cvfs(self):
+        logger.info("Finding Program Transitions and CVFS.")
+        for state in self.configurations:
+            state_id = self.redis_client.get(f"config_{self.hash_config(state)}").decode()
+            self.pts_n_cvfs[state_id] = {
+                "program_transitions": self._get_program_transitions(state),
+            }
+            key = "cvfs_in" if state in self.invariants else "cvfs_out"
+            self.pts_n_cvfs[state_id][key] = self._get_cvfs(state)
+
+    def _rank_all_states(self):
+        total_paths = 0
+        total_computation_paths = 0
+        logger.info("Ranking all states .")
+        unranked_states = set(self.pts_n_cvfs.keys()) - set(self.pts_rank.keys())
+        logger.info("No. of Unranked states: %s", len(unranked_states))
+
+        count = 0
+        # rank the states that has all the paths to the ranked one
+        while unranked_states:
+            # ranked_states = set(self.pts_rank.keys())
+            ranked_states = {
+                self.redis_client.get(f"config_{c.decode()}")
+                for c in self.redis_client.smembers("configs_ranked")
+            }
+            print(ranked_states)
+            remove_from_unranked_states = set()
+            for state in unranked_states:
+                dests = self.pts_n_cvfs[state]["program_transitions"]
+                if (
+                    dests - ranked_states
+                ):  # some desitnations states are yet to be ranked
+                    pass
+                else:  # all the destination has been ranked
+                    total_path_length = 0
+                    path_count = 0
+                    _max = 0
+                    for succ in dests:
+                        path_count += self.pts_rank[succ]["C"]
+                        total_path_length += (
+                            self.pts_rank[succ]["L"] + self.pts_rank[succ]["C"]
+                        )
+                        _max = max(_max, self.pts_rank[succ]["M"])
+                        total_computation_paths += 1
+                    self.pts_rank[state] = {
+                        "L": total_path_length,
+                        "C": path_count,
+                        "A": total_path_length / path_count,
+                        "Ar": math.ceil(total_path_length / path_count),
+                        "M": _max + 1,
+                    }
+                    total_paths += path_count
+                    remove_from_unranked_states.add(state)
+                    self.redis_client.sadd(
+                        "configs_ranked", self.get_config_dump(state)
+                    )
+
+            if not remove_from_unranked_states:
+                count += 1
+                if count % 10 == 0:
+                    json.dump(list(unranked_states), open("unranked_states.json", "w"))
+                    logger.error("Failed to rank states within 10 iterations.")
+                    exit(1)
+            else:
+                count = 0
+            unranked_states -= remove_from_unranked_states
+            logger.debug("No. of Unranked states: %s", len(unranked_states))
+
+        print("Total paths:", total_paths)
+        print("Total computation paths:", total_computation_paths)
 
     def __save_pts_to_file(self):
         def _map_key(state):
