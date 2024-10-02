@@ -61,7 +61,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
         self._rank_all_states()
-        self._gen_save_rank_count()
+        # self._gen_save_rank_count()
         # self._calculate_pts_rank_effect()
         # self._calculate_cvfs_rank_effect()
         # self._gen_save_rank_effect_count()
