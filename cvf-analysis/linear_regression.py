@@ -1,3 +1,4 @@
+import csv
 import os
 import math
 import json
@@ -16,7 +17,7 @@ from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
 
 comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
+program_node_rank = comm.Get_rank()
 
 
 class LinearRegressionFullAnalysis(CVFAnalysis):
@@ -61,10 +62,15 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
         self._rank_all_states()
-        # self._gen_save_rank_count()
+        comm.barrier()
+        self._gen_save_rank_count()
+        # comm.barrier()
         # self._calculate_pts_rank_effect()
+        # comm.barrier()
         # self._calculate_cvfs_rank_effect()
+        # comm.barrier()
         # self._gen_save_rank_effect_count()
+        # comm.barrier()
         # self._gen_save_rank_effect_by_node_count()
 
     def get_config_dump(self, config):
@@ -79,8 +85,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         starting_values_from_rows = []
         offset = 0
         while True:
-            if len(self.possible_values) > offset + rank:
-                starting_values_from_rows.append(offset + rank)
+            if len(self.possible_values) > offset + program_node_rank:
+                starting_values_from_rows.append(offset + program_node_rank)
                 offset += comm.size
             else:
                 break
@@ -97,14 +103,14 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 config_hash = self.hash_config(config_cpy)
                 self.redis_client.set(
                     f"config_id__{config_hash}",
-                    f"{rank}#{configuration_count}",
+                    f"{program_node_rank}#{configuration_count}",
                 )
                 # self.redis_client.set(f"config_rank_{config_hash}", -1)
                 self.redis_client.set(
                     f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
                 )
                 self.redis_client.set(
-                    f"config_hash__{rank}#{configuration_count}",
+                    f"config_hash__{program_node_rank}#{configuration_count}",
                     config_hash,
                 )
                 self.configurations.add(config_cpy)
@@ -281,7 +287,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 perturb_state = list(start_state)
                 perturb_state[position] = perturb_val
                 perturb_state = tuple(perturb_state)
-                cvfs[perturb_state] = (
+                config_id = self.redis_client.get(
+                    f"config_id__{self.hash_config(perturb_state)}"
+                ).decode()
+                cvfs[config_id] = (
                     position  # track the nodes to calculate its overall rank effect
                 )
 
@@ -369,6 +378,84 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
         print("Total paths:", total_paths)
         print("Total computation paths:", total_computation_paths)
+
+    def _gen_save_rank_count(self):
+        pt_rank_ = []
+        for state_id in self.pts_n_cvfs:
+            # state_id = self.redis_client.get(
+            #     f"config_id__{self.hash_config(state)}"
+            # ).decode()
+            state_pts_rank = json.loads(
+                self.redis_client.get(f"config_rank__{state_id}")
+            )
+            # pt_rank_.append({"state": state, **state_pts_rank})
+            pt_rank_.append({**state_pts_rank})
+
+        pt_rank_df = pd.DataFrame(pt_rank_)
+
+        pt_avg_counts = pt_rank_df["Ar"].value_counts()
+        pt_max_counts = pt_rank_df["M"].value_counts()
+
+        fieldnames = ["Rank", "Count (Max)", "Count (Avg)"]
+        with open(
+            os.path.join(
+                self.results_dir,
+                f"rank__{self.analysis_type}__{self.results_prefix}__{self.graph_name}__frm_{program_node_rank}.csv",
+            ),
+            "w",
+            newline="",
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for rank in sorted(set(pt_avg_counts.index) | set(pt_max_counts.index)):
+                writer.writerow(
+                    {
+                        "Rank": rank,
+                        "Count (Max)": pt_max_counts.get(rank, 0),
+                        "Count (Avg)": pt_avg_counts.get(rank, 0),
+                    }
+                )
+
+    def _calculate_pts_rank_effect(self):
+        logger.info("Calculating Program Transition rank effect.")
+        for state, pt_cvfs in self.pts_n_cvfs.items():
+            state_pts_rank = json.loads(self.redis_client.get(f"config_rank__{state}"))
+            for pt in pt_cvfs["program_transitions"]:
+                # self.pts_rank_effect[(state, pt)] = {
+                #     "Ar": self.pts_rank[pt]["Ar"] - self.pts_rank[state]["Ar"],
+                #     "M": self.pts_rank[pt]["M"] - self.pts_rank[state]["M"],
+                # }
+                pt_pts_rank = json.loads(self.redis_client.get(f"config_rank__{pt}"))
+                self.pts_rank_effect[(state, pt)] = {
+                    "Ar": pt_pts_rank["Ar"] - state_pts_rank["Ar"],
+                    "M": pt_pts_rank["M"] - state_pts_rank["M"],
+                }
+
+    def _calculate_cvfs_rank_effect(self):
+        logger.info("Calculating CVF rank effect.")
+        for state, pt_cvfs in self.pts_n_cvfs.items():
+            state_pts_rank = json.loads(self.redis_client.get(f"config_rank__{state}"))
+            if "cvfs_in" in pt_cvfs:
+                for cvf, node in pt_cvfs["cvfs_in"].items():
+                    cvf_pts_rank = json.loads(
+                        self.redis_client.get(f"config_rank__{cvf}")
+                    )
+                    self.cvfs_in_rank_effect[(state, cvf)] = {
+                        "node": node,
+                        "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
+                        "M": cvf_pts_rank["M"] - state_pts_rank["M"],
+                    }
+            else:
+                for cvf, node in pt_cvfs["cvfs_out"].items():
+                    cvf_pts_rank = json.loads(
+                        self.redis_client.get(f"config_rank__{cvf}")
+                    )
+                    self.cvfs_out_rank_effect[(state, cvf)] = {
+                        "node": node,
+                        "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
+                        "M": cvf_pts_rank["M"] - state_pts_rank["M"],
+                    }
 
     def __save_pts_to_file(self):
         def _map_key(state):
