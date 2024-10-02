@@ -1,18 +1,18 @@
-import hashlib
-import itertools
-import math
 import os
+import math
 import json
 import pickle
+import hashlib
+import itertools
 
+import pandas as pd
+import redis
 import numpy as np
 
 from mpi4py import MPI
-import redis
-
-from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
 from lr_configs.config_adapter import LRConfig
+from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
 
 
 comm = MPI.COMM_WORLD
@@ -55,11 +55,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _start(self):
         self._gen_configurations()
+        comm.barrier()
         self._find_program_transitions_n_cvfs()
+        comm.barrier()
         # # self._init_pts_rank()
         # # self.__save_pts_to_file()
         self._rank_all_states()
-        # self._gen_save_rank_count()
+        self._gen_save_rank_count()
         # self._calculate_pts_rank_effect()
         # self._calculate_cvfs_rank_effect()
         # self._gen_save_rank_effect_count()
@@ -82,7 +84,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 offset += comm.size
             else:
                 break
-        
+
         configuration_count = 0
         for sv in starting_values_from_rows:
             config[0] = self.possible_values[sv]
@@ -108,7 +110,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 self.configurations.add(config_cpy)
                 configuration_count += 1
 
-        comm.barrier()
         logger.info("No. of Configurations: %s", len(self.configurations))
 
     def _find_invariants(self):
@@ -153,13 +154,18 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.cache["r"][node_id] = result
         return result
 
+    def save_rank(self, state_id, rank):
+        # self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
+        self.redis_client.set(f"config_rank__{state_id}", json.dumps(rank))
+        self.redis_client.sadd("configs_ranked", state_id)
+
     def _add_to_invariants(self, state):
         self.invariants.add(state)
         state_id = self.redis_client.get(
             f"config_id__{self.hash_config(state)}"
         ).decode()
-        self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
-        self.redis_client.sadd("configs_ranked", self.hash_config(state))
+        self.save_rank(state_id, {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0})
+        # self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
 
     # def __gradient_m(self, X, y, y_pred):
     #     N = len(y)
@@ -297,7 +303,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         total_paths = 0
         total_computation_paths = 0
         logger.info("Ranking all states .")
-        unranked_states = set(self.pts_n_cvfs.keys()) - set(self.pts_rank.keys())
+        ranked_states = {
+            c.decode() for c in self.redis_client.smembers("configs_ranked")
+        }
+        unranked_states = set(self.pts_n_cvfs.keys()) - set(ranked_states)
         logger.info("No. of Unranked states: %s", len(unranked_states))
 
         count = 0
@@ -305,13 +314,11 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         while unranked_states:
             # ranked_states = set(self.pts_rank.keys())
             ranked_states = {
-                self.redis_client.get(f"config_{c.decode()}")
-                for c in self.redis_client.smembers("configs_ranked")
+                c.decode() for c in self.redis_client.smembers("configs_ranked")
             }
-            print(ranked_states)
             remove_from_unranked_states = set()
-            for state in unranked_states:
-                dests = self.pts_n_cvfs[state]["program_transitions"]
+            for state_id in unranked_states:
+                dests = self.pts_n_cvfs[state_id]["program_transitions"]
                 if (
                     dests - ranked_states
                 ):  # some desitnations states are yet to be ranked
@@ -321,24 +328,33 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     path_count = 0
                     _max = 0
                     for succ in dests:
-                        path_count += self.pts_rank[succ]["C"]
-                        total_path_length += (
-                            self.pts_rank[succ]["L"] + self.pts_rank[succ]["C"]
+                        # path_count += self.pts_rank[succ]["C"]
+                        pts_rank_succ = json.loads(
+                            self.redis_client.get(f"config_rank__{succ}")
                         )
-                        _max = max(_max, self.pts_rank[succ]["M"])
+                        path_count += pts_rank_succ["C"]
+                        total_path_length += pts_rank_succ["L"] + pts_rank_succ["C"]
+                        _max = max(_max, pts_rank_succ["M"])
                         total_computation_paths += 1
-                    self.pts_rank[state] = {
-                        "L": total_path_length,
-                        "C": path_count,
-                        "A": total_path_length / path_count,
-                        "Ar": math.ceil(total_path_length / path_count),
-                        "M": _max + 1,
-                    }
-                    total_paths += path_count
-                    remove_from_unranked_states.add(state)
-                    self.redis_client.sadd(
-                        "configs_ranked", self.get_config_dump(state)
+                    # self.pts_rank[state] = {
+                    #     "L": total_path_length,
+                    #     "C": path_count,
+                    #     "A": total_path_length / path_count,
+                    #     "Ar": math.ceil(total_path_length / path_count),
+                    #     "M": _max + 1,
+                    # }
+                    self.save_rank(
+                        state_id,
+                        {
+                            "L": total_path_length,
+                            "C": path_count,
+                            "A": total_path_length / path_count,
+                            "Ar": math.ceil(total_path_length / path_count),
+                            "M": _max + 1,
+                        },
                     )
+                    total_paths += path_count
+                    remove_from_unranked_states.add(state_id)
 
             if not remove_from_unranked_states:
                 count += 1
