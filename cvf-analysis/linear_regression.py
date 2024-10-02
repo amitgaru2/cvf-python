@@ -36,6 +36,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.nodes = list(range(self.config.no_of_nodes))
 
         self.redis_client = redis.Redis(host="localhost", port=6379, db=0)
+        self.redis_client.flushdb()
 
         self.configurations_id = dict()
         self.possible_values = np.round(
@@ -72,12 +73,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _gen_configurations(self):
         logger.debug("Generating configurations...")
-        # if rank == 0:
-        #     self.configurations = {
-        #         tuple([self.config.min_slope for _ in range(self.config.no_of_nodes)])
-        #     }
-        # self.configurations = comm.bcast(self.configurations, root=0)
-
         config = [None for _ in range(self.config.no_of_nodes)]
         starting_values_from_rows = []
         offset = 0
@@ -87,28 +82,27 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 offset += comm.size
             else:
                 break
-
+        
+        configuration_count = 0
         for sv in starting_values_from_rows:
             config[0] = self.possible_values[sv]
             other_node_values = itertools.product(
                 self.possible_values, repeat=self.config.no_of_nodes - 1
             )
-            configuration_count = 0
             for nv in other_node_values:
                 config[1:] = nv[:]
                 config_cpy = tuple(config)
-                # self.configurations_id[config_cpy] = f"{rank}#{self.configurations_count}"
                 config_hash = self.hash_config(config_cpy)
                 self.redis_client.set(
-                    f"config_{config_hash}",
+                    f"config_id__{config_hash}",
                     f"{rank}#{configuration_count}",
                 )
-                self.redis_client.set(f"config_rank_{config_hash}", -1)
+                # self.redis_client.set(f"config_rank_{config_hash}", -1)
                 self.redis_client.set(
-                    f"config_actual_{config_hash}", self.get_config_dump(config_cpy)
+                    f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
                 )
                 self.redis_client.set(
-                    f"config_id_{rank}#{configuration_count}",
+                    f"config_hash__{rank}#{configuration_count}",
                     config_hash,
                 )
                 self.configurations.add(config_cpy)
@@ -161,7 +155,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _add_to_invariants(self, state):
         self.invariants.add(state)
-        state_id = self.redis_client.get(f"config_{self.hash_config(state)}").decode()
+        state_id = self.redis_client.get(
+            f"config_id__{self.hash_config(state)}"
+        ).decode()
         self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
         self.redis_client.sadd("configs_ranked", self.hash_config(state))
 
@@ -246,8 +242,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 )
                 new_node_params = tuple(new_node_params)
                 config_id = self.redis_client.get(
-                    f"config_{self.hash_config(new_node_params)}"
-                )
+                    f"config_id__{self.hash_config(new_node_params)}"
+                ).decode()
                 if config_id is None:
                     logger.error(
                         "Config id not found for the config %s", new_node_params
@@ -288,7 +284,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _find_program_transitions_n_cvfs(self):
         logger.info("Finding Program Transitions and CVFS.")
         for state in self.configurations:
-            state_id = self.redis_client.get(f"config_{self.hash_config(state)}").decode()
+            state_id = self.redis_client.get(
+                f"config_id__{self.hash_config(state)}"
+            ).decode()
             self.pts_n_cvfs[state_id] = {
                 "program_transitions": self._get_program_transitions(state),
             }
