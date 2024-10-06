@@ -1,4 +1,5 @@
 import csv
+from functools import reduce
 import os
 import math
 import json
@@ -65,7 +66,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         comm.barrier()
         self._gen_save_rank_count()
         comm.barrier()
-        self._calculate_pts_rank_effect()
+        # self._calculate_pts_rank_effect()
         # comm.barrier()
         # self._calculate_cvfs_rank_effect()
         # comm.barrier()
@@ -379,6 +380,11 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         print("Total paths:", total_paths)
         print("Total computation paths:", total_computation_paths)
 
+    def _reduce_pt_counts_df(self, pt_counts: list):
+        return reduce(
+            lambda left, right: left.add(right, fill_value=0), pt_counts
+        ).astype(int)
+
     def _gen_save_rank_count(self):
         pt_rank_ = []
         for state_id in self.pts_n_cvfs:
@@ -396,26 +402,34 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         pt_avg_counts = pt_rank_df["Ar"].value_counts()
         pt_max_counts = pt_rank_df["M"].value_counts()
 
-        fieldnames = ["Rank", "Count (Max)", "Count (Avg)"]
-        with open(
-            os.path.join(
-                self.results_dir,
-                f"rank__{self.analysis_type}__{self.results_prefix}__{self.graph_name}__frm_{program_node_rank}.csv",
-            ),
-            "w",
-            newline="",
-        ) as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
+        # all_reduce_pt_counts = MPI.Op.Create(self._combine_pt_counts)
+        pt_avg_counts = comm.gather(pt_avg_counts, root=0)
+        pt_max_counts = comm.gather(pt_max_counts, root=0)
 
-            for rank in sorted(set(pt_avg_counts.index) | set(pt_max_counts.index)):
-                writer.writerow(
-                    {
-                        "Rank": rank,
-                        "Count (Max)": pt_max_counts.get(rank, 0),
-                        "Count (Avg)": pt_avg_counts.get(rank, 0),
-                    }
-                )
+        if program_node_rank == 0:
+            pt_avg_counts = self._reduce_pt_counts_df(pt_avg_counts)
+            pt_max_counts = self._reduce_pt_counts_df(pt_max_counts)
+
+            fieldnames = ["Rank", "Count (Max)", "Count (Avg)"]
+            with open(
+                os.path.join(
+                    self.results_dir,
+                    f"rank__{self.analysis_type}__{self.results_prefix}__{self.graph_name}.csv",
+                ),
+                "w",
+                newline="",
+            ) as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for rank in sorted(set(pt_avg_counts.index) | set(pt_max_counts.index)):
+                    writer.writerow(
+                        {
+                            "Rank": rank,
+                            "Count (Max)": pt_max_counts.get(rank, 0),
+                            "Count (Avg)": pt_avg_counts.get(rank, 0),
+                        }
+                    )
 
     def _calculate_pts_rank_effect(self):
         logger.info("Calculating Program Transition rank effect.")
