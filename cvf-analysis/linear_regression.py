@@ -64,8 +64,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self._rank_all_states()
         comm.barrier()
         self._gen_save_rank_count()
-        # comm.barrier()
-        # self._calculate_pts_rank_effect()
+        comm.barrier()
+        self._calculate_pts_rank_effect()
         # comm.barrier()
         # self._calculate_cvfs_rank_effect()
         # comm.barrier()
@@ -367,7 +367,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
             if not remove_from_unranked_states:
                 count += 1
-                if count % 10 == 0:
+                if count % 100 == 0:
                     json.dump(list(unranked_states), open("unranked_states.json", "w"))
                     logger.error("Failed to rank states within 10 iterations.")
                     exit(1)
