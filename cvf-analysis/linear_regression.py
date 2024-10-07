@@ -73,6 +73,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         comm.barrier()
         if program_node_rank == 0:
             self._gen_save_rank_effect_count()
+            self._gen_save_rank_effect_by_node_count()
         comm.barrier()
         # self._gen_save_rank_effect_by_node_count()
 
@@ -588,33 +589,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             lambda i, j: i.add(j, fill_value=0),
             self.cvfs_out_rank_effect[:]["M"],
         ).astype(int)
-        # cvf_in_avg_counts = reduce(
-        #     lambda i, j: self.cvfs_in_rank_effect.iloc[i]["Ar"].add(
-        #         self.cvfs_in_rank_effect.iloc[j]["Ar"], fill_value=0
-        #     ),
-        #     self.cvfs_in_rank_effect.index,
-        # )
-        # cvf_in_max_counts = reduce(
-        #     lambda i, j: self.cvfs_in_rank_effect.iloc[i]["M"].add(
-        #         self.cvfs_in_rank_effect.iloc[j]["M"], fill_value=0
-        #     ),
-        #     self.cvfs_in_rank_effect.index,
-        # )
-        # # cvf_in_max_counts = self.cvfs_in_rank_effect.iloc[:]["M"].sum()
-        # # cvf_out_avg_counts = self.cvfs_out_rank_effect.iloc[:]["Ar"].sum()
-        # # cvf_out_max_counts = self.cvfs_out_rank_effect.iloc[:]["M"].sum()
-        # cvf_out_avg_counts = reduce(
-        #     lambda i, j: self.cvfs_out_rank_effect.iloc[i]["Ar"].add(
-        #         self.cvfs_out_rank_effect.iloc[j]["Ar"], fill_value=0
-        #     ),
-        #     self.cvfs_out_rank_effect.index,
-        # )
-        # cvf_out_max_counts = reduce(
-        #     lambda i, j: self.cvfs_out_rank_effect.iloc[i]["M"].add(
-        #         self.cvfs_out_rank_effect.iloc[j]["M"], fill_value=0
-        #     ),
-        #     self.cvfs_out_rank_effect.index,
-        # )
 
         fieldnames = [
             "Rank Effect",
@@ -655,6 +629,115 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                         "CVF Out (Avg)": cvf_out_avg_counts.get(re, 0),
                     }
                 )
+
+    def _gen_save_rank_effect_by_node_count(self):
+        # cvf_in_avg_counts_by_node = self.cvfs_in_rank_effect_df.groupby(["node", "Ar"])[
+        #     "Ar"
+        # ].count()
+        # cvf_in_max_counts_by_node = self.cvfs_in_rank_effect_df.groupby(["node", "M"])[
+        #     "M"
+        # ].count()
+        # cvf_out_avg_counts_by_node = self.cvfs_out_rank_effect_df.groupby(
+        #     ["node", "Ar"]
+        # )["Ar"].count()
+        # cvf_out_max_counts_by_node = self.cvfs_out_rank_effect_df.groupby(
+        #     ["node", "M"]
+        # )["M"].count()
+
+        max_Ar = max(
+            reduce(
+                lambda i, j: max(i, max(j.index)), self.cvfs_in_rank_effect[:]["Ar"], 0
+            ),
+            reduce(
+                lambda i, j: max(i, max(j.index)), self.cvfs_out_rank_effect[:]["Ar"], 0
+            ),
+        )
+        min_Ar = min(
+            reduce(
+                lambda i, j: min(i, min(j.index)), self.cvfs_in_rank_effect[:]["Ar"], 0
+            ),
+            reduce(
+                lambda i, j: min(i, min(j.index)), self.cvfs_out_rank_effect[:]["Ar"], 0
+            ),
+        )
+
+        max_M = max(
+            reduce(
+                lambda i, j: max(i, max(j.index)), self.cvfs_in_rank_effect[:]["M"], 0
+            ),
+            reduce(
+                lambda i, j: max(i, max(j.index)), self.cvfs_out_rank_effect[:]["M"], 0
+            ),
+        )
+        min_M = min(
+            reduce(
+                lambda i, j: min(i, min(j.index)), self.cvfs_in_rank_effect[:]["M"], 0
+            ),
+            reduce(
+                lambda i, j: min(i, min(j.index)), self.cvfs_out_rank_effect[:]["M"], 0
+            ),
+        )
+
+        print(min_Ar, max_Ar, min_M, max_M)
+        # print(self.cvfs_in_rank_effect.iloc[:]["Ar"])
+        # print()
+        # print()
+        # print(self.cvfs_out_rank_effect.iloc[:]["Ar"])
+        # print(self.cvfs_in_rank_effect.iloc[1]["Ar"].index)
+
+        # max_M = max(
+        #     self.cvfs_in_rank_effect["M"].max(),
+        #     self.cvfs_out_rank_effect["M"].max(),
+        # )
+        # min_M = min(
+        #     self.cvfs_in_rank_effect["M"].min(),
+        #     self.cvfs_out_rank_effect["M"].min(),
+        # )
+
+        max_Ar_M = max(max_Ar, max_M)
+        min_Ar_M = min(min_Ar, min_M)
+
+        # rank effect of individual node
+        fieldnames = [
+            "Node",
+            "Rank Effect",
+            "CVF In (Max)",
+            "CVF In (Avg)",
+            "CVF Out (Max)",
+            "CVF Out (Avg)",
+        ]
+        with open(
+            os.path.join(
+                self.results_dir,
+                f"rank_effect_by_node__{self.analysis_type}__{self.results_prefix}__{self.graph_name}.csv",
+            ),
+            "w",
+            newline="",
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for node in self.nodes:
+                for rank_effect in range(min_Ar_M, max_Ar_M + 1):
+                    # node_re = (node, rank_effect)
+                    writer.writerow(
+                        {
+                            "Node": node,
+                            "Rank Effect": rank_effect,
+                            "CVF In (Max)": self.cvfs_in_rank_effect.iloc[node][
+                                "M"
+                            ].get(rank_effect, 0),
+                            "CVF In (Avg)": self.cvfs_in_rank_effect.iloc[node][
+                                "Ar"
+                            ].get(rank_effect, 0),
+                            "CVF Out (Max)": self.cvfs_out_rank_effect.iloc[node][
+                                "M"
+                            ].get(rank_effect, 0),
+                            "CVF Out (Avg)": self.cvfs_out_rank_effect.iloc[node][
+                                "Ar"
+                            ].get(rank_effect, 0),
+                        }
+                    )
 
     def __save_pts_to_file(self):
         def _map_key(state):
