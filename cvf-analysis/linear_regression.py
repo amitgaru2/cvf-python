@@ -1,16 +1,17 @@
-import csv
-from functools import reduce
 import os
+import csv
 import math
 import json
 import pickle
 import hashlib
 import itertools
-from typing import Counter
 
-import pandas as pd
 import redis
 import numpy as np
+import pandas as pd
+
+from functools import reduce
+from collections import Counter
 
 from mpi4py import MPI
 
@@ -631,19 +632,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 )
 
     def _gen_save_rank_effect_by_node_count(self):
-        # cvf_in_avg_counts_by_node = self.cvfs_in_rank_effect_df.groupby(["node", "Ar"])[
-        #     "Ar"
-        # ].count()
-        # cvf_in_max_counts_by_node = self.cvfs_in_rank_effect_df.groupby(["node", "M"])[
-        #     "M"
-        # ].count()
-        # cvf_out_avg_counts_by_node = self.cvfs_out_rank_effect_df.groupby(
-        #     ["node", "Ar"]
-        # )["Ar"].count()
-        # cvf_out_max_counts_by_node = self.cvfs_out_rank_effect_df.groupby(
-        #     ["node", "M"]
-        # )["M"].count()
-
         max_Ar = max(
             reduce(
                 lambda i, j: max(i, max(j.index)), self.cvfs_in_rank_effect[:]["Ar"], 0
@@ -677,22 +665,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 lambda i, j: min(i, min(j.index)), self.cvfs_out_rank_effect[:]["M"], 0
             ),
         )
-
-        print(min_Ar, max_Ar, min_M, max_M)
-        # print(self.cvfs_in_rank_effect.iloc[:]["Ar"])
-        # print()
-        # print()
-        # print(self.cvfs_out_rank_effect.iloc[:]["Ar"])
-        # print(self.cvfs_in_rank_effect.iloc[1]["Ar"].index)
-
-        # max_M = max(
-        #     self.cvfs_in_rank_effect["M"].max(),
-        #     self.cvfs_out_rank_effect["M"].max(),
-        # )
-        # min_M = min(
-        #     self.cvfs_in_rank_effect["M"].min(),
-        #     self.cvfs_out_rank_effect["M"].min(),
-        # )
 
         max_Ar_M = max(max_Ar, max_M)
         min_Ar_M = min(min_Ar, min_M)
