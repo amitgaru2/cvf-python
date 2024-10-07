@@ -6,6 +6,7 @@ import json
 import pickle
 import hashlib
 import itertools
+from typing import Counter
 
 import pandas as pd
 import redis
@@ -66,12 +67,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         comm.barrier()
         self._gen_save_rank_count()
         comm.barrier()
-        # self._calculate_pts_rank_effect()
-        # comm.barrier()
-        # self._calculate_cvfs_rank_effect()
-        # comm.barrier()
-        # self._gen_save_rank_effect_count()
-        # comm.barrier()
+        self._calculate_pts_rank_effect()
+        comm.barrier()
+        self._calculate_cvfs_rank_effect()
+        comm.barrier()
+        if program_node_rank == 0:
+            self._gen_save_rank_effect_count()
+        comm.barrier()
         # self._gen_save_rank_effect_by_node_count()
 
     def get_config_dump(self, config):
@@ -431,8 +433,45 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                         }
                     )
 
+    def _reduce_pts_rank_effect(self, rank_effects):
+        result = {}
+        result["Ar"] = reduce(
+            lambda left, right: left["Ar"].add(right["Ar"], fill_value=0), rank_effects
+        )
+        result["M"] = reduce(
+            lambda left, right: left["M"].add(right["M"], fill_value=0), rank_effects
+        )
+        return pd.DataFrame(result).fillna(0).astype("int")
+
+    def _reduce_cvfs_rank_effect(self, rank_effects):
+        result = {}
+        for node in self.nodes:
+            result[node] = {}
+            result[node]["Ar"] = reduce(
+                lambda left, right: (
+                    left[node]["Ar"].add(right[node]["Ar"], fill_value=0)
+                    if node in left and node in right
+                    else left[node]["Ar"] if node in left else right[node]["Ar"]
+                ),
+                rank_effects,
+            ).astype(int)
+            result[node]["M"] = reduce(
+                lambda left, right: (
+                    left[node]["M"].add(right[node]["M"], fill_value=0)
+                    if node in left and node in right
+                    else left[node]["Ar"] if node in left else right[node]["Ar"]
+                ),
+                rank_effects,
+            ).astype(int)
+
+        result = pd.DataFrame.from_dict(result, orient="index")
+        return result
+
     def _calculate_pts_rank_effect(self):
         logger.info("Calculating Program Transition rank effect.")
+        Ar = []
+        M = []
+        self.pts_rank_effect = {"Ar": Ar, "M": M}
         for state, pt_cvfs in self.pts_n_cvfs.items():
             state_pts_rank = json.loads(self.redis_client.get(f"config_rank__{state}"))
             for pt in pt_cvfs["program_transitions"]:
@@ -441,10 +480,24 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 #     "M": self.pts_rank[pt]["M"] - self.pts_rank[state]["M"],
                 # }
                 pt_pts_rank = json.loads(self.redis_client.get(f"config_rank__{pt}"))
-                self.pts_rank_effect[(state, pt)] = {
-                    "Ar": pt_pts_rank["Ar"] - state_pts_rank["Ar"],
-                    "M": pt_pts_rank["M"] - state_pts_rank["M"],
-                }
+                # self.pts_rank_effect[(state, pt)] = {
+                #     "Ar": pt_pts_rank["Ar"] - state_pts_rank["Ar"],
+                #     "M": pt_pts_rank["M"] - state_pts_rank["M"],
+                # }
+                self.pts_rank_effect["Ar"].append(
+                    pt_pts_rank["Ar"] - state_pts_rank["Ar"]
+                )
+                self.pts_rank_effect["M"].append(pt_pts_rank["M"] - state_pts_rank["M"])
+
+        # locally reduce
+        self.pts_rank_effect["Ar"] = pd.Series(Counter(self.pts_rank_effect["Ar"]))
+        self.pts_rank_effect["M"] = pd.Series(Counter(self.pts_rank_effect["M"]))
+
+        self.pts_rank_effect = comm.gather(self.pts_rank_effect, root=0)
+
+        if program_node_rank == 0:
+            self.pts_rank_effect = self._reduce_pts_rank_effect(self.pts_rank_effect)
+            self.pts_rank_effect.to_csv("pts_rank_effect.csv")
 
     def _calculate_cvfs_rank_effect(self):
         logger.info("Calculating CVF rank effect.")
@@ -455,21 +508,118 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     cvf_pts_rank = json.loads(
                         self.redis_client.get(f"config_rank__{cvf}")
                     )
-                    self.cvfs_in_rank_effect[(state, cvf)] = {
-                        "node": node,
-                        "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
-                        "M": cvf_pts_rank["M"] - state_pts_rank["M"],
-                    }
+                    # self.cvfs_in_rank_effect[(state, cvf)] = {
+                    #     "node": node,
+                    #     "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
+                    #     "M": cvf_pts_rank["M"] - state_pts_rank["M"],
+                    # }
+                    if node not in self.cvfs_in_rank_effect:
+                        self.cvfs_in_rank_effect[node] = {
+                            "Ar": [cvf_pts_rank["Ar"] - state_pts_rank["Ar"]],
+                            "M": [cvf_pts_rank["M"] - state_pts_rank["M"]],
+                        }
+                    else:
+                        self.cvfs_in_rank_effect[node]["Ar"].append(
+                            cvf_pts_rank["Ar"] - state_pts_rank["Ar"]
+                        )
+                        self.cvfs_in_rank_effect[node]["M"].append(
+                            cvf_pts_rank["M"] - state_pts_rank["M"]
+                        )
             else:
                 for cvf, node in pt_cvfs["cvfs_out"].items():
                     cvf_pts_rank = json.loads(
                         self.redis_client.get(f"config_rank__{cvf}")
                     )
-                    self.cvfs_out_rank_effect[(state, cvf)] = {
-                        "node": node,
-                        "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
-                        "M": cvf_pts_rank["M"] - state_pts_rank["M"],
+                    # self.cvfs_out_rank_effect[(state, cvf)] = {
+                    #     "node": node,
+                    #     "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
+                    #     "M": cvf_pts_rank["M"] - state_pts_rank["M"],
+                    # }
+                    if node not in self.cvfs_out_rank_effect:
+                        self.cvfs_out_rank_effect[node] = {
+                            "Ar": [cvf_pts_rank["Ar"] - state_pts_rank["Ar"]],
+                            "M": [cvf_pts_rank["M"] - state_pts_rank["M"]],
+                        }
+                    else:
+                        self.cvfs_out_rank_effect[node]["Ar"].append(
+                            cvf_pts_rank["Ar"] - state_pts_rank["Ar"]
+                        )
+                        self.cvfs_out_rank_effect[node]["M"].append(
+                            cvf_pts_rank["M"] - state_pts_rank["M"]
+                        )
+
+        # locally reduce
+        for node, rank_effects in self.cvfs_in_rank_effect.items():
+            rank_effects["Ar"] = pd.Series(Counter(rank_effects["Ar"]))
+            rank_effects["M"] = pd.Series(Counter(rank_effects["M"]))
+
+        for node, rank_effects in self.cvfs_out_rank_effect.items():
+            rank_effects["Ar"] = pd.Series(Counter(rank_effects["Ar"]))
+            rank_effects["M"] = pd.Series(Counter(rank_effects["M"]))
+
+        self.cvfs_in_rank_effect = comm.gather(self.cvfs_in_rank_effect, root=0)
+        self.cvfs_out_rank_effect = comm.gather(self.cvfs_out_rank_effect, root=0)
+
+        if program_node_rank == 0:
+            self.cvfs_in_rank_effect = self._reduce_cvfs_rank_effect(
+                self.cvfs_in_rank_effect
+            )
+            self.cvfs_out_rank_effect = self._reduce_cvfs_rank_effect(
+                self.cvfs_out_rank_effect
+            )
+            # self.cvfs_in_rank_effect.to_csv("cvfs_in_rank_effect.csv")
+            # self.cvfs_out_rank_effect.to_csv("cvfs_out_rank_effect.csv")
+            # self.cvfs_in_rank_effect.to_csv("cvf in rank effect.csv")
+            # self.cvfs_out_rank_effect.to_csv("cvf out rank effect.csv")
+            # self.pts_rank_effect.to_csv("pts rank effect.csv")
+
+    def _gen_save_rank_effect_count(self):
+        pt_avg_counts = self.pts_rank_effect["Ar"]
+        pt_max_counts = self.pts_rank_effect["M"]
+        cvf_in_avg_counts = self.cvfs_in_rank_effect.iloc[:]["Ar"].sum()
+        cvf_in_max_counts = self.cvfs_in_rank_effect.iloc[:]["M"].sum()
+        cvf_out_avg_counts = self.cvfs_out_rank_effect.iloc[:]["Ar"].sum()
+        cvf_out_max_counts = self.cvfs_out_rank_effect.iloc[:]["M"].sum()
+
+        fieldnames = [
+            "Rank Effect",
+            "PT (Max)",
+            "PT (Avg)",
+            "CVF In (Max)",
+            "CVF In (Avg)",
+            "CVF Out (Max)",
+            "CVF Out (Avg)",
+        ]
+        with open(
+            os.path.join(
+                self.results_dir,
+                f"rank_effect__{self.analysis_type}__{self.results_prefix}__{self.graph_name}.csv",
+            ),
+            "w",
+            newline="",
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for re in sorted(
+                set(pt_avg_counts.index)
+                | set(pt_max_counts.index)
+                | set(cvf_in_avg_counts.index)
+                | set(cvf_in_max_counts.index)
+                | set(cvf_out_avg_counts.index)
+                | set(cvf_out_max_counts.index)
+            ):
+                writer.writerow(
+                    {
+                        "Rank Effect": re,
+                        "PT (Max)": pt_max_counts.get(re, 0),
+                        "PT (Avg)": pt_avg_counts.get(re, 0),
+                        "CVF In (Max)": cvf_in_max_counts.get(re, 0),
+                        "CVF In (Avg)": cvf_in_avg_counts.get(re, 0),
+                        "CVF Out (Max)": cvf_out_max_counts.get(re, 0),
+                        "CVF Out (Avg)": cvf_out_avg_counts.get(re, 0),
                     }
+                )
 
     def __save_pts_to_file(self):
         def _map_key(state):
