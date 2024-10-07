@@ -572,20 +572,22 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _gen_save_rank_effect_count(self):
         pt_avg_counts = self.pts_rank_effect["Ar"]
         pt_max_counts = self.pts_rank_effect["M"]
-
-        # print(
-        #     self.cvfs_in_rank_effect.iloc[0]["Ar"].add(
-        #         self.cvfs_in_rank_effect.iloc[1]["Ar"], fill_value=0
-        #     )
-        # )
-        def reducer(i, j):
-            print(i, j)
-            return self.cvfs_in_rank_effect.iloc[i]["Ar"].add(
-                self.cvfs_in_rank_effect.iloc[j]["Ar"]
-            )
-            # return i + j
-
-        print(reduce(reducer, self.cvfs_in_rank_effect.index))
+        cvf_in_avg_counts = reduce(
+            lambda i, j: i.add(j, fill_value=0),
+            self.cvfs_in_rank_effect[:]["Ar"],
+        ).astype(int)
+        cvf_in_max_counts = reduce(
+            lambda i, j: i.add(j, fill_value=0),
+            self.cvfs_in_rank_effect[:]["M"],
+        ).astype(int)
+        cvf_out_avg_counts = reduce(
+            lambda i, j: i.add(j, fill_value=0),
+            self.cvfs_out_rank_effect[:]["Ar"],
+        ).astype(int)
+        cvf_out_max_counts = reduce(
+            lambda i, j: i.add(j, fill_value=0),
+            self.cvfs_out_rank_effect[:]["M"],
+        ).astype(int)
         # cvf_in_avg_counts = reduce(
         #     lambda i, j: self.cvfs_in_rank_effect.iloc[i]["Ar"].add(
         #         self.cvfs_in_rank_effect.iloc[j]["Ar"], fill_value=0
@@ -614,45 +616,45 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         #     self.cvfs_out_rank_effect.index,
         # )
 
-        # fieldnames = [
-        #     "Rank Effect",
-        #     "PT (Max)",
-        #     "PT (Avg)",
-        #     "CVF In (Max)",
-        #     "CVF In (Avg)",
-        #     "CVF Out (Max)",
-        #     "CVF Out (Avg)",
-        # ]
-        # with open(
-        #     os.path.join(
-        #         self.results_dir,
-        #         f"rank_effect__{self.analysis_type}__{self.results_prefix}__{self.graph_name}.csv",
-        #     ),
-        #     "w",
-        #     newline="",
-        # ) as f:
-        #     writer = csv.DictWriter(f, fieldnames=fieldnames)
-        #     writer.writeheader()
+        fieldnames = [
+            "Rank Effect",
+            "PT (Max)",
+            "PT (Avg)",
+            "CVF In (Max)",
+            "CVF In (Avg)",
+            "CVF Out (Max)",
+            "CVF Out (Avg)",
+        ]
+        with open(
+            os.path.join(
+                self.results_dir,
+                f"rank_effect__{self.analysis_type}__{self.results_prefix}__{self.graph_name}.csv",
+            ),
+            "w",
+            newline="",
+        ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
 
-        #     for re in sorted(
-        #         set(pt_avg_counts.index)
-        #         | set(pt_max_counts.index)
-        #         | set(cvf_in_avg_counts.index)
-        #         | set(cvf_in_max_counts.index)
-        #         | set(cvf_out_avg_counts.index)
-        #         | set(cvf_out_max_counts.index)
-        #     ):
-        #         writer.writerow(
-        #             {
-        #                 "Rank Effect": re,
-        #                 "PT (Max)": pt_max_counts.get(re, 0),
-        #                 "PT (Avg)": pt_avg_counts.get(re, 0),
-        #                 "CVF In (Max)": cvf_in_max_counts.get(re, 0),
-        #                 "CVF In (Avg)": cvf_in_avg_counts.get(re, 0),
-        #                 "CVF Out (Max)": cvf_out_max_counts.get(re, 0),
-        #                 "CVF Out (Avg)": cvf_out_avg_counts.get(re, 0),
-        #             }
-        #         )
+            for re in sorted(
+                set(pt_avg_counts.index)
+                | set(pt_max_counts.index)
+                | set(cvf_in_avg_counts.index)
+                | set(cvf_in_max_counts.index)
+                | set(cvf_out_avg_counts.index)
+                | set(cvf_out_max_counts.index)
+            ):
+                writer.writerow(
+                    {
+                        "Rank Effect": re,
+                        "PT (Max)": pt_max_counts.get(re, 0),
+                        "PT (Avg)": pt_avg_counts.get(re, 0),
+                        "CVF In (Max)": cvf_in_max_counts.get(re, 0),
+                        "CVF In (Avg)": cvf_in_avg_counts.get(re, 0),
+                        "CVF Out (Max)": cvf_out_max_counts.get(re, 0),
+                        "CVF Out (Avg)": cvf_out_avg_counts.get(re, 0),
+                    }
+                )
 
     def __save_pts_to_file(self):
         def _map_key(state):
