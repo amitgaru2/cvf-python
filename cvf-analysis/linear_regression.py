@@ -102,15 +102,14 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 config[1:] = nv[:]
                 config_cpy = tuple(config)
                 config_hash = self.hash_config(config_cpy)
-                self.redis_client.set(
+                self.set_data_to_redis(
                     f"config_id__{config_hash}",
                     f"{program_node_rank}#{configuration_count}",
                 )
-                # self.redis_client.set(f"config_rank_{config_hash}", -1)
-                self.redis_client.set(
+                self.set_data_to_redis(
                     f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
                 )
-                self.redis_client.set(
+                self.set_data_to_redis(
                     f"config_hash__{program_node_rank}#{configuration_count}",
                     config_hash,
                 )
@@ -163,8 +162,24 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def save_rank(self, state_id, rank):
         # self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
-        self.redis_client.set(f"config_rank__{state_id}", json.dumps(rank))
-        self.redis_client.sadd("configs_ranked", state_id)
+        # self.redis_client.set(f"config_rank__{state_id}", json.dumps(rank))
+        # self.redis_client.sadd("configs_ranked", state_id)
+        self.set_data_to_redis(f"config_rank__{state_id}", json.dumps(rank))
+        self.sadd_data_to_redis(f"configs_ranked", state_id)
+
+    def set_data_to_redis(self, key, value, backoff=True):
+        logger.debug('Setting key "%s" in redis.', key)
+        result = self.redis_client.set(key, value)
+        if not result:
+            logger.error('Failed to set key "%s" in redis.', key)
+            exit(1)
+
+    def sadd_data_to_redis(self, key, value, backoff=True):
+        logger.debug('Setting set key "%s" in redis.', key)
+        result = self.redis_client.sadd(key, value)
+        if not result:
+            logger.error('Failed to set key "%s" in redis.', key)
+            exit(1)
 
     def get_data_frm_redis(self, key, backoff=True):
         result = self.redis_client.get(key)
@@ -172,14 +187,14 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             for i in range(5):
                 sleep_for = 2**i
                 logger.debug(
-                    "Redis data not found. Sleeping for %s seconds.", sleep_for
+                    'Redis data not found. Sleeping for "%s" seconds.', sleep_for
                 )
                 time.sleep(sleep_for)
                 result = self.redis_client.get(key)
                 if result is not None:
                     break
             else:
-                logger.error("Redis data not found for key %s.", key)
+                logger.error('Redis data not found for key "%s".', key)
                 exit(1)
         return result
 
