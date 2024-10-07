@@ -1,6 +1,7 @@
 import os
 import csv
 import math
+import time
 import json
 import pickle
 import hashlib
@@ -13,14 +14,9 @@ import pandas as pd
 from functools import reduce
 from collections import Counter
 
-from mpi4py import MPI
-
+from custom_mpi import comm, program_node_rank
 from lr_configs.config_adapter import LRConfig
 from cvf_analysis import CVFAnalysis, PartialCVFAnalysisMixin, logger
-
-
-comm = MPI.COMM_WORLD
-program_node_rank = comm.Get_rank()
 
 
 class LinearRegressionFullAnalysis(CVFAnalysis):
@@ -170,9 +166,26 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.redis_client.set(f"config_rank__{state_id}", json.dumps(rank))
         self.redis_client.sadd("configs_ranked", state_id)
 
+    def get_data_frm_redis(self, key, backoff=True):
+        result = self.redis_client.get(key)
+        if result is None and backoff:
+            for i in range(5):
+                sleep_for = 2**i
+                logger.debug(
+                    "Redis data not found. Sleeping for %s seconds.", sleep_for
+                )
+                time.sleep(sleep_for)
+                result = self.redis_client.get(key)
+                if result is not None:
+                    break
+            else:
+                logger.error("Redis data not found for key %s.", key)
+                exit(1)
+        return result
+
     def _add_to_invariants(self, state):
         self.invariants.add(state)
-        state_id = self.redis_client.get(
+        state_id = self.get_data_frm_redis(
             f"config_id__{self.hash_config(state)}"
         ).decode()
         self.save_rank(state_id, {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0})
@@ -292,7 +305,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 perturb_state = list(start_state)
                 perturb_state[position] = perturb_val
                 perturb_state = tuple(perturb_state)
-                config_id = self.redis_client.get(
+                config_id = self.get_data_frm_redis(
                     f"config_id__{self.hash_config(perturb_state)}"
                 ).decode()
                 cvfs[config_id] = (
@@ -304,7 +317,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _find_program_transitions_n_cvfs(self):
         logger.info("Finding Program Transitions and CVFS.")
         for state in self.configurations:
-            state_id = self.redis_client.get(
+            state_id = self.get_data_frm_redis(
                 f"config_id__{self.hash_config(state)}"
             ).decode()
             self.pts_n_cvfs[state_id] = {
@@ -344,7 +357,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     for succ in dests:
                         # path_count += self.pts_rank[succ]["C"]
                         pts_rank_succ = json.loads(
-                            self.redis_client.get(f"config_rank__{succ}")
+                            self.get_data_frm_redis(f"config_rank__{succ}")
                         )
                         path_count += pts_rank_succ["C"]
                         total_path_length += pts_rank_succ["L"] + pts_rank_succ["C"]
@@ -392,13 +405,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _gen_save_rank_count(self):
         pt_rank_ = []
         for state_id in self.pts_n_cvfs:
-            # state_id = self.redis_client.get(
-            #     f"config_id__{self.hash_config(state)}"
-            # ).decode()
             state_pts_rank = json.loads(
-                self.redis_client.get(f"config_rank__{state_id}")
+                self.get_data_frm_redis(f"config_rank__{state_id}")
             )
-            # pt_rank_.append({"state": state, **state_pts_rank})
             pt_rank_.append({**state_pts_rank})
 
         pt_rank_df = pd.DataFrame(pt_rank_)
@@ -406,7 +415,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         pt_avg_counts = pt_rank_df["Ar"].value_counts()
         pt_max_counts = pt_rank_df["M"].value_counts()
 
-        # all_reduce_pt_counts = MPI.Op.Create(self._combine_pt_counts)
         pt_avg_counts = comm.gather(pt_avg_counts, root=0)
         pt_max_counts = comm.gather(pt_max_counts, root=0)
 
@@ -475,13 +483,15 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         M = []
         self.pts_rank_effect = {"Ar": Ar, "M": M}
         for state, pt_cvfs in self.pts_n_cvfs.items():
-            state_pts_rank = json.loads(self.redis_client.get(f"config_rank__{state}"))
+            state_pts_rank = json.loads(
+                self.get_data_frm_redis(f"config_rank__{state}")
+            )
             for pt in pt_cvfs["program_transitions"]:
                 # self.pts_rank_effect[(state, pt)] = {
                 #     "Ar": self.pts_rank[pt]["Ar"] - self.pts_rank[state]["Ar"],
                 #     "M": self.pts_rank[pt]["M"] - self.pts_rank[state]["M"],
                 # }
-                pt_pts_rank = json.loads(self.redis_client.get(f"config_rank__{pt}"))
+                pt_pts_rank = json.loads(self.get_data_frm_redis(f"config_rank__{pt}"))
                 # self.pts_rank_effect[(state, pt)] = {
                 #     "Ar": pt_pts_rank["Ar"] - state_pts_rank["Ar"],
                 #     "M": pt_pts_rank["M"] - state_pts_rank["M"],
@@ -504,11 +514,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _calculate_cvfs_rank_effect(self):
         logger.info("Calculating CVF rank effect.")
         for state, pt_cvfs in self.pts_n_cvfs.items():
-            state_pts_rank = json.loads(self.redis_client.get(f"config_rank__{state}"))
+            state_pts_rank = json.loads(
+                self.get_data_frm_redis(f"config_rank__{state}")
+            )
             if "cvfs_in" in pt_cvfs:
                 for cvf, node in pt_cvfs["cvfs_in"].items():
                     cvf_pts_rank = json.loads(
-                        self.redis_client.get(f"config_rank__{cvf}")
+                        self.get_data_frm_redis(f"config_rank__{cvf}")
                     )
                     # self.cvfs_in_rank_effect[(state, cvf)] = {
                     #     "node": node,
@@ -530,7 +542,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             else:
                 for cvf, node in pt_cvfs["cvfs_out"].items():
                     cvf_pts_rank = json.loads(
-                        self.redis_client.get(f"config_rank__{cvf}")
+                        self.get_data_frm_redis(f"config_rank__{cvf}")
                     )
                     # self.cvfs_out_rank_effect[(state, cvf)] = {
                     #     "node": node,
