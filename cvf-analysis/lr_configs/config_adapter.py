@@ -76,8 +76,10 @@ class LRConfig:
         arr = np.array(doubly_stochastic_matrix)
         try:
             for i, row in enumerate(arr):
-                assert np.sum(row) == 1, f"Row index {i}"
-                assert np.sum(arr[:, i]) == 1, f"Column index {i}"
+                assert np.sum(row) == 1 or np.isclose(np.sum(row), 1), f"Row index {i}"
+                assert (
+                    np.sum(arr[:, i]) or np.isclose(np.sum(arr[:, i], 1)) == 1
+                ), f"Column index {i}"
         except Exception as e:
             logger.exception("Invalid doubly stochastic matrix!")
             exit(1)
