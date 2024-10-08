@@ -36,7 +36,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.nodes = list(range(self.config.no_of_nodes))
 
         self.redis_client = redis.StrictRedis(
-            host="localhost",
+            host=os.getenv("REDIS_HOST", "localhost"),
             port=6379,
             username="default",
             password=os.getenv("REDIS_PASSWORD", ""),
