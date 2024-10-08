@@ -486,7 +486,11 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                                 else (
                                     left[node]["Ar"]
                                     if node in left
-                                    else right[node]["Ar"] if node in right else pd.Series([])
+                                    else (
+                                        right[node]["Ar"]
+                                        if node in right
+                                        else pd.Series([])
+                                    )
                                 )
                             )
                         }
@@ -504,7 +508,11 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                                 else (
                                     left[node]["M"]
                                     if node in left
-                                    else right[node]["M"] if node in right else pd.Series([])   
+                                    else (
+                                        right[node]["M"]
+                                        if node in right
+                                        else pd.Series([])
+                                    )
                                 )
                             )
                         }
