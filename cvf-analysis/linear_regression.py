@@ -37,6 +37,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
         self.redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
         self.redis_client.flushdb()
+        comm.barrier()
 
         self.configurations_id = dict()
         self.possible_values = np.round(
