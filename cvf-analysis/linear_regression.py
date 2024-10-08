@@ -36,7 +36,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.nodes = list(range(self.config.no_of_nodes))
 
         self.redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
-        self.redis_client.flushdb()
+        if program_node_rank == 0:
+            self.redis_client.flushdb()
         comm.barrier()
 
         self.configurations_id = dict()
@@ -462,11 +463,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def _reduce_pts_rank_effect(self, rank_effects):
         result = {}
         result["Ar"] = reduce(
-            lambda left, right: left["Ar"].add(right["Ar"], fill_value=0), rank_effects
-        )
+            lambda left, right: {"Ar": left["Ar"].add(right["Ar"], fill_value=0)},
+            rank_effects,
+        )["Ar"]
         result["M"] = reduce(
-            lambda left, right: left["M"].add(right["M"], fill_value=0), rank_effects
-        )
+            lambda left, right: {"M": left["M"].add(right["M"], fill_value=0)},
+            rank_effects,
+        )["M"]
         return pd.DataFrame(result).fillna(0).astype("int")
 
     def _reduce_cvfs_rank_effect(self, rank_effects):
@@ -475,20 +478,40 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             result[node] = {}
             result[node]["Ar"] = reduce(
                 lambda left, right: (
-                    left[node]["Ar"].add(right[node]["Ar"], fill_value=0)
-                    if node in left and node in right
-                    else left[node]["Ar"] if node in left else right[node]["Ar"]
+                    {
+                        node: {
+                            "Ar": (
+                                left[node]["Ar"].add(right[node]["Ar"], fill_value=0)
+                                if node in left and node in right
+                                else (
+                                    left[node]["Ar"]
+                                    if node in left
+                                    else right[node]["Ar"]
+                                )
+                            )
+                        }
+                    }
                 ),
                 rank_effects,
-            ).astype(int)
+            )[node]["Ar"].astype(int)
             result[node]["M"] = reduce(
                 lambda left, right: (
-                    left[node]["M"].add(right[node]["M"], fill_value=0)
-                    if node in left and node in right
-                    else left[node]["Ar"] if node in left else right[node]["Ar"]
+                    {
+                        node: {
+                            "M": (
+                                left[node]["M"].add(right[node]["M"], fill_value=0)
+                                if node in left and node in right
+                                else (
+                                    left[node]["M"]
+                                    if node in left
+                                    else right[node]["M"]
+                                )
+                            )
+                        }
+                    }
                 ),
                 rank_effects,
-            ).astype(int)
+            )[node]["M"].astype(int)
 
         result = pd.DataFrame.from_dict(result, orient="index")
         return result
@@ -503,19 +526,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 self.get_data_frm_redis(f"config_rank__{state}")
             )
             for pt in pt_cvfs["program_transitions"]:
-                # self.pts_rank_effect[(state, pt)] = {
-                #     "Ar": self.pts_rank[pt]["Ar"] - self.pts_rank[state]["Ar"],
-                #     "M": self.pts_rank[pt]["M"] - self.pts_rank[state]["M"],
-                # }
                 pt_pts_rank = json.loads(self.get_data_frm_redis(f"config_rank__{pt}"))
-                # self.pts_rank_effect[(state, pt)] = {
-                #     "Ar": pt_pts_rank["Ar"] - state_pts_rank["Ar"],
-                #     "M": pt_pts_rank["M"] - state_pts_rank["M"],
-                # }
-                self.pts_rank_effect["Ar"].append(
-                    pt_pts_rank["Ar"] - state_pts_rank["Ar"]
-                )
-                self.pts_rank_effect["M"].append(pt_pts_rank["M"] - state_pts_rank["M"])
+                Ar.append(pt_pts_rank["Ar"] - state_pts_rank["Ar"])
+                M.append(pt_pts_rank["M"] - state_pts_rank["M"])
 
         # locally reduce
         self.pts_rank_effect["Ar"] = pd.Series(Counter(self.pts_rank_effect["Ar"]))
@@ -538,11 +551,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     cvf_pts_rank = json.loads(
                         self.get_data_frm_redis(f"config_rank__{cvf}")
                     )
-                    # self.cvfs_in_rank_effect[(state, cvf)] = {
-                    #     "node": node,
-                    #     "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
-                    #     "M": cvf_pts_rank["M"] - state_pts_rank["M"],
-                    # }
                     if node not in self.cvfs_in_rank_effect:
                         self.cvfs_in_rank_effect[node] = {
                             "Ar": [cvf_pts_rank["Ar"] - state_pts_rank["Ar"]],
@@ -560,11 +568,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     cvf_pts_rank = json.loads(
                         self.get_data_frm_redis(f"config_rank__{cvf}")
                     )
-                    # self.cvfs_out_rank_effect[(state, cvf)] = {
-                    #     "node": node,
-                    #     "Ar": cvf_pts_rank["Ar"] - state_pts_rank["Ar"],
-                    #     "M": cvf_pts_rank["M"] - state_pts_rank["M"],
-                    # }
                     if node not in self.cvfs_out_rank_effect:
                         self.cvfs_out_rank_effect[node] = {
                             "Ar": [cvf_pts_rank["Ar"] - state_pts_rank["Ar"]],
