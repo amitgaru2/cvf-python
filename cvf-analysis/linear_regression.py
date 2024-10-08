@@ -35,7 +35,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.config = LRConfig.generate_config(config_file)
         self.nodes = list(range(self.config.no_of_nodes))
 
-        self.redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
+        self.redis_client = redis.StrictRedis(
+            host="localhost",
+            port=6379,
+            username="default",
+            password=os.getenv("REDIS_PASSWORD", ""),
+            db=0,
+        )
         if program_node_rank == 0:
             self.redis_client.flushdb()
         comm.barrier()
