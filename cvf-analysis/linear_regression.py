@@ -114,13 +114,13 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     f"config_id__{config_hash}",
                     f"{program_node_rank}#{configuration_count}",
                 )
-                self.set_data_to_redis(
-                    f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
-                )
-                self.set_data_to_redis(
-                    f"config_hash__{program_node_rank}#{configuration_count}",
-                    config_hash,
-                )
+                # self.set_data_to_redis(
+                #     f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
+                # )
+                # self.set_data_to_redis(
+                #     f"config_hash__{program_node_rank}#{configuration_count}",
+                #     config_hash,
+                # )
                 self.configurations.add(config_cpy)
                 configuration_count += 1
 
