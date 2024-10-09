@@ -209,12 +209,16 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 exit(1)
         return result
 
+    def get_rank_data_key_index(self, key):
+        return {"L": 0, "C": 1, "A": 2, "Ar": 0, "M": 0}[key]
+
     def _add_to_invariants(self, state):
         self.invariants.add(state)
         state_id = self.get_data_frm_redis(
             f"{self.config_id_key_prefix}_{self.hash_config(state)}"
         ).decode()
-        self.save_rank(state_id, {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0})
+        # {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0} => [0, 1, 0, 0, 0]
+        self.save_rank(state_id, [0, 1, 0, 0, 0])
         # self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
 
     # def __gradient_m(self, X, y, y_pred):
@@ -424,8 +428,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             unranked_states -= remove_from_unranked_states
             logger.debug("No. of Unranked states: %s", len(unranked_states))
 
-        print("Total paths:", total_paths)
-        print("Total computation paths:", total_computation_paths)
+        logger.debug("Total paths: %s", total_paths)
+        logger.debug("Total computation paths: %s", total_computation_paths)
 
     def _reduce_pt_counts_df(self, pt_counts: list):
         return reduce(
