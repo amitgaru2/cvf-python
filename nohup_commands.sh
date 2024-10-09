@@ -14,5 +14,5 @@ cd cvf-analysis
 #python3 main.py --program maximal_matching --graph-names graph_8
 # python3 main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG
 
-
-mpiexec -n 2 python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_1
+#mpiexec -n 2 python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_1
+mpiexec -n 8 python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_55
