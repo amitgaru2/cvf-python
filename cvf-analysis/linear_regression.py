@@ -38,6 +38,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         # redis related configurations
         self.config_id_key_prefix = "cid"
         self.config_rank_key_prefix = "cr"
+        self.configs_ranked_key_prefix = "crd"
         self.redis_client = redis.StrictRedis(
             host=os.getenv("REDIS_HOST", "localhost"),
             port=6379,
@@ -172,13 +173,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         return result
 
     def save_rank(self, state_id, rank):
-        # self.pts_rank[state_id] = {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0}
-        # self.redis_client.set(f"{self.config_rank_key_prefix}_{state_id}", json.dumps(rank))
-        # self.redis_client.sadd("configs_ranked", state_id)
         self.set_data_to_redis(
             f"{self.config_rank_key_prefix}_{state_id}", json.dumps(rank)
         )
-        self.sadd_data_to_redis(f"configs_ranked", state_id)
+        self.sadd_data_to_redis(self.configs_ranked_key_prefix, state_id)
 
     def set_data_to_redis(self, key, value, backoff=True):
         logger.debug('Setting key "%s" in redis.', key)
@@ -359,7 +357,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         total_computation_paths = 0
         logger.info("Ranking all states .")
         ranked_states = {
-            c.decode() for c in self.redis_client.smembers("configs_ranked")
+            c.decode()
+            for c in self.redis_client.smembers(self.configs_ranked_key_prefix)
         }
         unranked_states = set(self.pts_n_cvfs.keys()) - set(ranked_states)
         logger.info("No. of Unranked states: %s", len(unranked_states))
@@ -369,7 +368,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         while unranked_states:
             # ranked_states = set(self.pts_rank.keys())
             ranked_states = {
-                c.decode() for c in self.redis_client.smembers("configs_ranked")
+                c.decode()
+                for c in self.redis_client.smembers(self.configs_ranked_key_prefix)
             }
             remove_from_unranked_states = set()
             for state_id in unranked_states:
