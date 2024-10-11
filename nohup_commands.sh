@@ -18,4 +18,4 @@ cd cvf-analysis
 #mpiexec -n 8 python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_55
 
 #mpirun --prefix /home/agaru/anaconda3 --hostfile hostlist -np 2 --verbose -x CVF_CODE_ROOT=$CVF_CODE_ROOT -x REDIS_HOST=$REDIS_HOST -x REDIS_PASSWORD=$REDIS_PASSWORD python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_1
-mpirun --prefix /home/agaru/anaconda3 --mca btl_tcp_if_include enp4s0 --hostfile hostlist -np 4 --verbose -x CVF_CODE_ROOT=$CVF_CODE_ROOT -x REDIS_HOST=$REDIS_HOST -x REDIS_PASSWORD=$REDIS_PASSWORD python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_1
+mpirun --prefix /home/agaru/anaconda3 --mca btl_tcp_if_include enp4s0 --hostfile hostlist -np 4 --verbose -x CVF_CODE_ROOT=$CVF_CODE_ROOT -x REDIS_HOST=$REDIS_HOST -x REDIS_PASSWORD=$REDIS_PASSWORD python main.py --program linear_regression -f --graph-names test_lr_graph_1 --logging DEBUG --config-file matrix_11
