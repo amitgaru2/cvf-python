@@ -83,7 +83,6 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             self.redis_client.flushdb()
         comm.barrier()
 
-        self.configurations_id = dict()
         self.possible_values = np.round(
             np.arange(
                 self.config.min_slope,
@@ -92,6 +91,14 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
             ),
             self.config.slope_step_decimals,
         )
+        self.possible_values_indx = {v: i for i, v in enumerate(self.possible_values)}
+        self.possible_values_indx_str = {
+            v: str(i) for i, v in enumerate(self.possible_values)
+        }
+        self.node_configs_alloc_sv = {}
+        self.node_configs_alloc_sv_rev = {}
+
+        self.pts = dict()
 
     # def __gen_test_data_partition_frm_df(self, partitions, df):
     #     shuffled = df.sample(frac=1)
@@ -99,24 +106,26 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     #     return result
 
     def _start(self):
-        self._gen_configurations()
+        self.allocating_config()
         comm.barrier()
+        # self._gen_configurations()
+        # comm.barrier()
         self._find_program_transitions_n_cvfs()
         comm.barrier()
-        # # self._init_pts_rank()
-        # # self.__save_pts_to_file()
-        self._rank_all_states()
-        comm.barrier()
-        self._gen_save_rank_count()
-        comm.barrier()
-        self._calculate_pts_rank_effect()
-        comm.barrier()
-        self._calculate_cvfs_rank_effect()
-        comm.barrier()
-        if program_node_rank == 0:
-            self._gen_save_rank_effect_count()
-            self._gen_save_rank_effect_by_node_count()
-        comm.barrier()
+        # # # self._init_pts_rank()
+        # # # self.__save_pts_to_file()
+        # self._rank_all_states()
+        # comm.barrier()
+        # self._gen_save_rank_count()
+        # comm.barrier()
+        # self._calculate_pts_rank_effect()
+        # comm.barrier()
+        # self._calculate_cvfs_rank_effect()
+        # comm.barrier()
+        # if program_node_rank == 0:
+        #     self._gen_save_rank_effect_count()
+        #     self._gen_save_rank_effect_by_node_count()
+        # comm.barrier()
         # self._gen_save_rank_effect_by_node_count()
 
     def get_config_dump(self, config):
@@ -125,43 +134,61 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
     def hash_config(self, config):
         return hashlib.md5(str(config).encode()).hexdigest()
 
-    def _gen_configurations(self):
-        logger.debug("Generating configurations...")
-        config = [None for _ in range(self.config.no_of_nodes)]
-        starting_values_from_rows = []
-        offset = 0
-        while True:
-            if len(self.possible_values) > offset + program_node_rank:
-                starting_values_from_rows.append(offset + program_node_rank)
-                offset += comm.size
+    def base_n_to_decimal(self, base_n_str):
+        """cite: gpt"""
+        decimal_value = 0
+        length = len(base_n_str)
+
+        for i in range(length):
+            digit = int(base_n_str[length - 1 - i])
+            decimal_value += digit * (len(self.possible_values) ** i)
+
+        return decimal_value
+
+    def config_to_indx(self, config):
+        belongs_to_program_node = self.node_configs_alloc_sv[
+            self.possible_values_indx[config[0]]
+        ]
+        config_to_indx_str = "".join(self.possible_values_indx_str[i] for i in config)
+        return f"{belongs_to_program_node}#{self.base_n_to_decimal(config_to_indx_str)}"
+
+    def allocating_config(self):
+        node_token = 0
+        for i, _ in enumerate(self.possible_values):
+            self.node_configs_alloc_sv[i] = node_token
+            if node_token not in self.node_configs_alloc_sv_rev:
+                self.node_configs_alloc_sv_rev[node_token] = [i]
             else:
-                break
+                self.node_configs_alloc_sv_rev[node_token].append(i)
+            node_token = (node_token + 1) % comm.size
 
-        configuration_count = 0
-        for sv in starting_values_from_rows:
-            config[0] = self.possible_values[sv]
-            other_node_values = itertools.product(
-                self.possible_values, repeat=self.config.no_of_nodes - 1
-            )
-            for nv in other_node_values:
-                config[1:] = nv[:]
-                config_cpy = tuple(config)
-                config_hash = self.hash_config(config_cpy)
-                self.set_data_to_redis(
-                    f"{self.config_id_key_prefix}_{config_hash}",
-                    f"{program_node_rank}#{configuration_count}",
-                )
-                # self.set_data_to_redis(
-                #     f"config_tuple__{config_hash}", self.get_config_dump(config_cpy)
-                # )
-                # self.set_data_to_redis(
-                #     f"config_hash__{program_node_rank}#{configuration_count}",
-                #     config_hash,
-                # )
-                self.configurations.add(config_cpy)
-                configuration_count += 1
+        logger.debug(
+            "Allocated %s sv index", self.node_configs_alloc_sv_rev[program_node_rank]
+        )
 
-        logger.info("No. of Configurations: %s", len(self.configurations))
+    def _gen_configurations(self):
+        pass
+        # logger.debug("Generating configurations...")
+        # config = [None for _ in range(self.config.no_of_nodes)]
+
+        # configuration_count = 0
+        # for sv_indx in self.node_configs_alloc_sv_rev[program_node_rank]:
+        #     config[0] = self.possible_values[sv_indx]
+        #     other_node_values = itertools.product(
+        #         self.possible_values, repeat=self.config.no_of_nodes - 1
+        #     )
+        #     for nv in other_node_values:
+        #         config[1:] = nv[:]
+        #         config_cpy = tuple(config)
+        #         # config_hash = self.hash_config(config_cpy)
+        #         # self.set_data_to_redis(
+        #         #     f"{self.config_id_key_prefix}_{config_hash}",
+        #         #     f"{program_node_rank}#{configuration_count}",
+        #         # )
+        #         self.configurations.add(config_cpy)
+        #         configuration_count += 1
+
+        # logger.info("No. of Configurations: %s", len(self.configurations))
 
     def _find_invariants(self):
         logger.info("No. of Invariants: %s", len(self.invariants))
@@ -245,9 +272,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
 
     def _add_to_invariants(self, state):
         self.invariants.add(state)
-        state_id = self.get_data_frm_redis(
-            f"{self.config_id_key_prefix}_{self.hash_config(state)}"
-        ).decode()
+        # state_id = self.get_data_frm_redis(
+        #     f"{self.config_id_key_prefix}_{self.hash_config(state)}"
+        # ).decode()
+        state_id = self.config_to_indx(state)
         # {"L": 0, "C": 1, "A": 0, "Ar": 0, "M": 0} => [0, 1, 0, 0, 0]
         rank = Rank(0, 1, 0, 0, 0)
         self.save_rank(state_id, rank)
@@ -333,9 +361,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                     list(start_state), node_id, new_slope_cleaned
                 )
                 new_node_params = tuple(new_node_params)
-                config_id = self.redis_client.get(
-                    f"{self.config_id_key_prefix}_{self.hash_config(new_node_params)}"
-                ).decode()
+                # config_id = self.redis_client.get(
+                #     f"{self.config_id_key_prefix}_{self.hash_config(new_node_params)}"
+                # ).decode()
+                config_id = self.config_to_indx(new_node_params)
                 if config_id is None:
                     logger.error(
                         "Config id not found for the config %s", new_node_params
@@ -367,9 +396,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
                 perturb_state = list(start_state)
                 perturb_state[position] = perturb_val
                 perturb_state = tuple(perturb_state)
-                config_id = self.get_data_frm_redis(
-                    f"{self.config_id_key_prefix}_{self.hash_config(perturb_state)}"
-                ).decode()
+                # config_id = self.get_data_frm_redis(
+                #     f"{self.config_id_key_prefix}_{self.hash_config(perturb_state)}"
+                # ).decode()
+                config_id = self.config_to_indx(perturb_state)
                 cvfs[config_id] = (
                     position  # track the nodes to calculate its overall rank effect
                 )
@@ -377,16 +407,29 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         return cvfs
 
     def _find_program_transitions_n_cvfs(self):
-        logger.info("Finding Program Transitions and CVFS.")
-        for state in self.configurations:
-            state_id = self.get_data_frm_redis(
-                f"{self.config_id_key_prefix}_{self.hash_config(state)}"
-            ).decode()
-            self.pts_n_cvfs[state_id] = {
-                "program_transitions": self._get_program_transitions(state),
-            }
-            key = "cvfs_in" if state in self.invariants else "cvfs_out"
-            self.pts_n_cvfs[state_id][key] = self._get_cvfs(state)
+        logger.info(
+            "Generating configurations and Finding Program Transitions and CVFS."
+        )
+
+        config = [None for _ in range(self.config.no_of_nodes)]
+        configuration_count = 0
+        for sv_indx in self.node_configs_alloc_sv_rev[program_node_rank]:
+            config[0] = self.possible_values[sv_indx]
+            other_node_values = itertools.product(
+                self.possible_values, repeat=self.config.no_of_nodes - 1
+            )
+            for nv in other_node_values:
+                config[1:] = nv[:]
+                state = tuple(config)
+                state_id = self.config_to_indx(state)
+                self.pts_n_cvfs[state_id] = {
+                    "program_transitions": self._get_program_transitions(state),
+                }
+                key = "cvfs_in" if state in self.invariants else "cvfs_out"
+                self.pts_n_cvfs[state_id][key] = self._get_cvfs(state)
+                configuration_count += 1
+
+        logger.info("No. of Configurations: %s", len(self.pts_n_cvfs))
 
     def _rank_all_states(self):
         total_paths = 0
