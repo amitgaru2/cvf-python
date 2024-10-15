@@ -69,9 +69,10 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.nodes = list(range(self.config.no_of_nodes))
 
         # redis related configurations
-        self.config_id_key_prefix = "cid"
-        self.config_rank_key_prefix = "cr"
-        self.configs_ranked_key_prefix = "crd"
+        # self.config_id_key_prefix = "cid"
+        # self.config_rank_key_prefix = "cr"
+        # self.configs_ranked_key_prefix = "crd"
+
         self.redis_client = redis.StrictRedis(
             host=os.getenv("REDIS_HOST", "localhost"),
             port=6379,
@@ -98,6 +99,8 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         self.node_configs_alloc_sv = {}
         self.node_configs_alloc_sv_rev = {}
 
+        self.ranked_states = set()
+
         self.pts = dict()
 
     # def __gen_test_data_partition_frm_df(self, partitions, df):
@@ -112,9 +115,7 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         # comm.barrier()
         self._find_program_transitions_n_cvfs()
         comm.barrier()
-        # # # self._init_pts_rank()
-        # # # self.__save_pts_to_file()
-        # self._rank_all_states()
+        self._rank_all_states()
         # comm.barrier()
         # self._gen_save_rank_count()
         # comm.barrier()
@@ -233,8 +234,9 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         return result
 
     def save_rank(self, state_id, rank: Rank):
-        self.set_data_to_redis(f"{self.config_rank_key_prefix}_{state_id}", rank.dump)
-        self.sadd_data_to_redis(self.configs_ranked_key_prefix, state_id)
+        self.set_data_to_redis(state_id, rank.dump)
+        self.ranked_states.add(state_id)
+        # self.sadd_data_to_redis(self.configs_ranked_key_prefix, state_id)
 
     def set_data_to_redis(self, key, value, backoff=True):
         logger.debug('Setting key "%s" in redis.', key)
@@ -435,11 +437,11 @@ class LinearRegressionFullAnalysis(CVFAnalysis):
         total_paths = 0
         total_computation_paths = 0
         logger.info("Ranking all states .")
-        ranked_states = {
-            c.decode()
-            for c in self.redis_client.smembers(self.configs_ranked_key_prefix)
-        }
-        unranked_states = set(self.pts_n_cvfs.keys()) - set(ranked_states)
+        # ranked_states = {
+        #     c.decode()
+        #     for c in self.redis_client.smembers(self.configs_ranked_key_prefix)
+        # }
+        unranked_states = set(self.pts_n_cvfs.keys()) - self.ranked_states
         logger.info("No. of Unranked states: %s", len(unranked_states))
 
         count = 0
