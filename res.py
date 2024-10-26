@@ -2,7 +2,7 @@ class TreeNode:
     def __init__(self, config, children: set["TreeNode"] = set()) -> None:
         self.config = config
         self.children = children
-        self.cost = None
+        self.cost = []
 
     def traverse(self):
         queue = [self]
@@ -21,9 +21,10 @@ class TreeNode:
 def get_pts(config):
     return {
         (0, 0, 0): {(0, 0, 1)},
-        (0, 0, 1): {(0, 1, 0), (0, 1, 1)},
+        (0, 0, 1): {(0, 1, 0), (0, 1, 1), (1, 0, 0)},
         (0, 1, 0): set(),
         (0, 1, 1): {(0, 1, 0)},
+        (1, 0, 0): {(0, 1, 0)},
     }[config]
 
 
@@ -42,7 +43,8 @@ def dfs(path):
 
 def backtrack_path(path: list[TreeNode]):
     for i, node in enumerate(path):
-        node.cost = (i + node.cost) / 2 if node.cost is not None else i
+        # node.cost = (i + node.cost) / 2 if node.cost is not None else i
+        node.cost.append(i)
 
 
 invariants = {(0, 1, 0)}
