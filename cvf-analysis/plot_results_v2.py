@@ -82,7 +82,7 @@ graph_names_map = {
         # "0.8_1.9__0.025__2__test_lr_graph_1",
         # "1.3_1.9__0.025__matrix_4__test_lr_graph_1",
         # "1.3_1.9__0.025__matrix_7__test_lr_graph_1",
-        "1.3_1.9__0.025__matrix_8__test_lr_graph_1",
+        "1.3_1.9__0.025__matrix_6__test_lr_graph_1",
         # "0.7_1.9__0.025__test_lr_graph_1",
         # "0.9_1.9__0.025__test_lr_graph_1",
     },
@@ -157,7 +157,7 @@ for graph_name in graph_names:
     file_name = f"rank_effect_by_node__{analysis_type}__{program}__{graph_name}"
   
     plt.rc("font", size=fontsize)
-    plt.legend(fontsize=fontsize * 0.9)  # using a size in points
+    plt.legend(fontsize=fontsize)  # using a size in points
     plt.savefig(
         os.path.join(
             plots_dir,
