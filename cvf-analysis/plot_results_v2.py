@@ -39,7 +39,8 @@ program_label = program_label_map.get(program, program)
 
 analysis_type = "full"  # full, partial
 
-fontsize = 20
+fontsize = 30
+legend_fontsize = 27
 
 graph_names_map = {
     COLORING_PROGRAM: {
@@ -157,7 +158,7 @@ for graph_name in graph_names:
     file_name = f"rank_effect_by_node__{analysis_type}__{program}__{graph_name}"
   
     plt.rc("font", size=fontsize)
-    plt.legend(fontsize=fontsize)  # using a size in points
+    plt.legend(fontsize=legend_fontsize)  # using a size in points
     plt.savefig(
         os.path.join(
             plots_dir,

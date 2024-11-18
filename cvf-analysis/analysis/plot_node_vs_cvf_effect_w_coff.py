@@ -41,8 +41,8 @@ def plot_node_vs_rank_effect(df, ax, node_id_max, c_off):
     ax.xaxis.label.set_size(fontsize)
     ax.yaxis.label.set_size(fontsize)
     ax.yaxis.offsetText.set_fontsize(fontsize)
-    ax.tick_params(axis="x", labelsize=20)
-    ax.tick_params(axis="y", labelsize=20)
+    ax.tick_params(axis="x", labelsize=fontsize)
+    ax.tick_params(axis="y", labelsize=fontsize)
     if program == "coloring" or program == "maximal_matching":
         ax.set_yticks([i for i in range(c_off, rank_effect_max + 1)])
 
@@ -66,8 +66,8 @@ if __name__ == "__main__":
         df = pd.DataFrame(data, columns=["Node", "Rank Effect"])
         fig, ax = plt.subplots(1, figsize=(10, 5), constrained_layout=True)
         file_name = f"node__vs__rank_effect_gte_{cut_off}__{analysis_type}__{program}__{graph_name}"
-        fig_title = f"Node vs Rank_effect >= {cut_off} for program {program_label}"
-        fig.suptitle(fig_title, fontsize=fontsize)
+        fig_title = f"Node vs Rank effect >= {cut_off} for program {program_label}"
+        # fig.suptitle(fig_title, fontsize=fontsize)
         plot_node_vs_rank_effect(df, ax, node_id_max, cut_off)
 
         fig.savefig(

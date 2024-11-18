@@ -33,7 +33,7 @@ program_label = program_label_map.get(program, program)
 
 analysis_type = "full"  # full, partial
 
-fontsize = 20
+fontsize = 30
 
 graph_names_map = {
     COLORING_PROGRAM: {
